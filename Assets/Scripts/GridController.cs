@@ -1,5 +1,7 @@
+using System;
 using System.Collections;
 using UnityEngine;
+using Random = UnityEngine.Random;
 
 public class GridController : MonoBehaviour
 {
@@ -12,6 +14,9 @@ public class GridController : MonoBehaviour
     public Bug[,] playingBugs;
     private GridSpace[,] gridSpaces;
     public Bug[] bugs;
+    private SpriteRenderer speechBubble;
+    private SpriteRenderer attack;
+    private SpriteRenderer march;
 
     public float spacing = 0.3f;
 
@@ -21,46 +26,51 @@ public class GridController : MonoBehaviour
         playingBugs = new Bug[width, height];
         CreateGrid();
     }
+
+    private void Awake()
+    {
+        speechBubble = GameObject.FindGameObjectWithTag("SpeechBubble").GetComponent<SpriteRenderer>();
+        attack = GameObject.FindGameObjectWithTag("Attack").GetComponent<SpriteRenderer>();
+        march = GameObject.FindGameObjectWithTag("Move").GetComponent<SpriteRenderer>();
+    }
+
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Space) && gamePhase == GamePhase.PickingBugs)
+        
+        if (gamePhase == GamePhase.PickingBugs)
         {
+            if (!Input.GetKeyDown(KeyCode.Space)) 
+            {
+                for (int i = 0; i < width/2; i++)
+                {
+                    for (int j = 0; j < height; j++)
+                    {
+                        if (gridSpaces[i, j].currBug == null) return;
+                    }
+                }
+            }
             gamePhase = GamePhase.Battling;
             AddEnemies();
             RegisterBugs();
-            StartBattle();
+
+            StartCoroutine(StepOne());
         }
     }
 
     private void CreateGrid()
     {
-        for (int x = 0; x < width; x++)
+        foreach (var gridSpace in GameObject.FindGameObjectsWithTag("GridSquare"))
         {
-            for (int y = 0; y < height; y++)
+            if (gridSpace.TryGetComponent<GridSpace>(out var space))
             {
-                // Calculate the position for the new grid space
-                Vector3 position = new(transform.position.x + x * spacing, transform.position.y + y * spacing, 0);
-
-                // Instantiate a new grid space at this position
-                GameObject newGridSpace = Instantiate(gridSpacePrefab, position, Quaternion.identity);
-
-                // Make the new grid space a child of this grid object
-                newGridSpace.transform.parent = transform;
-
-                gridSpaces[x, y] = newGridSpace.GetComponent<GridSpace>();
-                if (x >= width/2)
+                if (space.i >= width / 2)
                 {
-                    gridSpaces[x, y].canAddBugs = false;
+                    space.canAddBugs = false;
                 }
+                gridSpaces[space.i, space.j] = space;
             }
         }
     }
-
-    public void StartBattle()
-    {
-        StartCoroutine(Battle());
-    }
-
 
     private void AddEnemies()
     {
@@ -73,10 +83,9 @@ public class GridController : MonoBehaviour
                 var bugIndex = Random.Range(0, bugs.Length);
                 var bug = Instantiate(bugs[bugIndex], pos, Quaternion.identity);
                 bug.moving = false;
-                playingBugs[i, j] = bug;
                 bug.IsFriendly = false;
+                gridSpaces[i, j].currBug = bug;
                 gridSpaces[i, j].friendlySquare = false;
-                bug.GetComponent<SpriteRenderer>().color = Color.red;
                 bug.GetComponent<SpriteRenderer>().flipX = true;
             }
         }
@@ -101,28 +110,19 @@ public class GridController : MonoBehaviour
             }
         }
     }
-    private bool CheckDead(int i, int j)
-    {
-        if (playingBugs[i, j] && playingBugs[i, j].Health <= 0)
-        {
-            Destroy(playingBugs[i, j].gameObject);
-            playingBugs[i, j] = null;
-            gridSpaces[i, j].currBug = null;
-            return true;
-        }
-        return false;
-    }
 
     private bool IsFinished()
     {
-        var allFriendly = true;
-        var allEnemies = true;
-        for (int i = 0; i < width; i++)
+        for (int j = 0; j < height; j++)
         {
-            for (int j = 0; j < height; j++)
+            var allFriendly = true;
+            var allEnemies = true;
+            var rowEmpty = true;
+            for (int i = 0; i < width; i++)
             {
                 if (playingBugs[i, j] != null)
                 {
+                    rowEmpty = false;
                     if (playingBugs[i, j].IsFriendly)
                     {
                         allEnemies = false;
@@ -130,77 +130,139 @@ public class GridController : MonoBehaviour
                     {
                         allFriendly = false;
                     }
-                    if (!allEnemies && !allFriendly) return false;
                 }
             }
+            var anyOpposingBugs = !allEnemies && !allFriendly;
+            // If the row has buggies and they are not all enemies or all friendly then we are still fighting.
+            if (!rowEmpty && anyOpposingBugs) return false;
         }
         return true;
     }
 
-    private void BugFight()
-    {
 
+    /* Bug turn logic:
+     * For each column from 1 to width-2: 
+     *     For each row from 0 to height - 1 
+     *         If the piece exists and can attack or move, add the attack coroutine or move coroutine to the coroutine list like Coroutines.Add(ActivateCoroutine(bug.Attack(otherBug)))
+     *         Always activate special abilities!!!
+     *     Wait until all coroutines in the list are done (null).
+     * Check if the game is over. 
+     *     If the player has more bugs than the opponent, the player wins. Same works the other way. Same amount means tie. Clear all bugs from the board.
+     *
+     * 
+     */
+
+    private YieldCollection manager = new();
+
+    private void ResetBoard()
+    {
+        for (int i = 0; i < width; i++)
+        {
+            for (int j = 0; j < height; j++)
+            {
+                if (playingBugs[i, j])
+                {
+                    playingBugs[i, j].IsFriendly = true;
+                    playingBugs[i, j].moving = true;
+                    playingBugs[i, j].isFighting = false;
+                    playingBugs[i, j] = null;
+                }
+                gridSpaces[i, j].currBug = null;
+                gridSpaces[i, j].canAddBugs = i < width / 2;
+                gridSpaces[i, j].friendlySquare = i < width / 2;
+            }
+        }
     }
 
-    private IEnumerator Battle()
+    private void CheckAllDead()
+    {
+
+        for (var i = 0; i < width; i++)
+        {
+            for (var j = 0; j < height; j++)
+            {
+                if (playingBugs[i, j] && playingBugs[i, j].Health <= 0)
+                {
+                    playingBugs[i, j].Die();
+                    playingBugs[i, j] = null;
+                    gridSpaces[i, j].currBug = null;
+                }
+            }
+        }
+    }
+
+    // Battle phase
+    private IEnumerator StepOne()
     {
         while (!IsFinished())
         {
-            for (int x = width - 1; x >= 0; x--)
+            for (var i = 0; i < width; i++)
             {
-                // Go Right to Left for the friendly bugs
-                for (int y = 0; y < height; y++)
+                yield return new WaitForSeconds(0.1f);
+                for (var j = height-1;  j >= 0; j--)
                 {
-                    Bug currentBug = playingBugs[x, y];
-                    if (currentBug != null && currentBug.IsFriendly)
+                    if (playingBugs[i, j] != null)
                     {
-                        // Check if the bug can move to the next space
-                        if (x + 1 < width && playingBugs[x + 1, y] == null)
+                        Bug bug = playingBugs[i, j];
+                        bug.SpecialAbility(i, j, gridSpaces);
+                        var dir = bug.IsFriendly ? 1 : -1;
+                        bool safeMove = i + dir < width && i + dir >= 0;
+                        if (safeMove && playingBugs[i + dir, j] && bug.CanAttack(playingBugs[i + dir, j]))
                         {
-                            currentBug.Move(gridSpaces[x + 1, y]);
-                            gridSpaces[x + 1, y].currBug = currentBug;
-                            playingBugs[x + 1, y] = currentBug;
-                            playingBugs[x, y] = null;
-                            gridSpaces[x, y].currBug = null;
-                        }
-                        // If the next space is taken by an enemy, fight
-                        else if (x + 1 < width && playingBugs[x + 1, y] != null && playingBugs[x + 1, y].IsFriendly != currentBug.IsFriendly)
-                        {
-                            currentBug.Attack(playingBugs[x + 1, y]);
-                            CheckDead(x, y);
-                        }
+                            speechBubble.enabled = true;
+                            attack.enabled = true;
+                            march.enabled = false;
+                            // TODO only do this for friendly bugs. This should make the opponent bug attack this WHILE this attacks the opponent - therefore, handling damage correct.
+                            var attackCoroutine = bug.Attack(playingBugs[i + dir, j]);
+                            bug.SpecialAttack(i, j, gridSpaces);
+                            StartCoroutine(manager.CountCoroutine(attackCoroutine));
+                        } 
                     }
                 }
             }
-            for (int x = 0; x < width; x++)
-            { 
-                    // Go Left to Right for the enemy bugs
-                    for (int y = 0; y < height; y++)
+            yield return manager;
+            CheckAllDead();
+
+            for (var i = width - 1; i >= 0; i--)
+            {
+                yield return new WaitForSeconds(0.1f);
+                for (var j = height - 1; j >= 0; j--)
                 {
-                    Bug currentBug = playingBugs[x, y];
-                    if (currentBug != null && !currentBug.IsFriendly)
-                    {
-                        // Check if the bug can move to the next space
-                        if (x - 1 >= 0 && playingBugs[x - 1, y] == null)
-                        {
-                            currentBug.Move(gridSpaces[x - 1, y]);
-                            gridSpaces[x - 1, y].currBug = currentBug;
-                            playingBugs[x - 1, y] = currentBug;
-                            playingBugs[x, y] = null;
-                            gridSpaces[x, y].currBug = null;
-                        }
-                        // If the next space is taken by an enemy, fight
-                        else if (x - 1 >= 0 && playingBugs[x - 1, y] != null && playingBugs[x - 1, y].IsFriendly != currentBug.IsFriendly)
-                        {
-                            currentBug.Attack(playingBugs[x - 1, y]);
-                            CheckDead(x, y);
-                        }
-                    }
+                    CheckMove(i, j, true);
+                    CheckMove(width - i - 1, j, false);
                 }
             }
-            yield return new WaitForSeconds(1f);
+            yield return manager;
+
+            yield return new WaitForSeconds(0.5f);
         }
+        speechBubble.enabled = false;
+        attack.enabled = false;
+        march.enabled = false;
+        ResetBoard();
         gamePhase = GamePhase.PickingBugs;
     }
 
+    private void CheckMove(int i, int j, bool IsFriendly)
+    {
+        if (playingBugs[i, j] != null && playingBugs[i, j].IsFriendly == IsFriendly)
+        {
+            Bug bug = playingBugs[i, j];
+            var indx = i;
+            var dir = bug.IsFriendly ? 1 : -1;
+            bool safeMove = indx + dir < width && indx + dir >= 0;
+            if (safeMove && playingBugs[indx + dir, j] == null)
+            {
+                speechBubble.enabled = true;
+                attack.enabled = false;
+                march.enabled = true;
+                var move = bug.Move(gridSpaces[indx + dir, j]);
+                gridSpaces[indx + dir, j].currBug = playingBugs[indx, j];
+                playingBugs[indx + dir, j] = playingBugs[indx, j];
+                playingBugs[indx, j] = null;
+                gridSpaces[indx, j].currBug = null;
+                StartCoroutine(manager.CountCoroutine(move));
+            }
+        }
+    }
 }

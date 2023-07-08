@@ -1,12 +1,9 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using static UnityEditor.PlayerSettings;
 
 public class BugManager : MonoBehaviour
 {
-
-    public Bug bugPrefab;  // Assign this in the inspector
     public float spawnInterval = 5f;  // Spawn a new bug every 5 seconds
     public Vector2 minBounds;  // The minimum x and y coordinates where bugs can spawn and move
     public Vector2 maxBounds;  // The maximum x and y coordinates where bugs can spawn and move

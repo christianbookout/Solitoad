@@ -2,17 +2,11 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Slug : MonoBehaviour
+public class Slug : Bug
 {
-    // Start is called before the first frame update
-    void Start()
+    public override void TakeDamage(Bug fromBug, int damage = -1)
     {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
+        if (fromBug) fromBug.isPoisoned = true;
+        base.TakeDamage(fromBug, damage);
     }
 }

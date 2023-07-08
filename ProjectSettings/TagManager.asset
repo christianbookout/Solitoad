@@ -6,6 +6,12 @@ TagManager:
   tags:
   - Undefined
   - GridSquare
+  - Attack
+  - Move
+  - SpeechBubble
+  - red
+  - green
+  - Canvas
   layers:
   - Default
   - TransparentFX
@@ -52,6 +58,15 @@ TagManager:
   - name: buggies
     uniqueID: 1826780397
     locked: 0
+  - name: Health
+    uniqueID: 3705012131
+    locked: 0
   - name: player
     uniqueID: 4240893107
+    locked: 0
+  - name: UI
+    uniqueID: 3699358881
+    locked: 0
+  - name: UI top
+    uniqueID: 112924707
     locked: 0

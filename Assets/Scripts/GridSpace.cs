@@ -6,6 +6,9 @@ public class GridSpace : MonoBehaviour
     public Bug currBug;
     public bool friendlySquare = true;
     public bool canAddBugs = true;
+    public int i;
+    public int j;
+
     public bool PlayerCanAddBugs()
     {
         return currBug == null && canAddBugs && friendlySquare && GridController.gamePhase == GridController.GamePhase.PickingBugs;

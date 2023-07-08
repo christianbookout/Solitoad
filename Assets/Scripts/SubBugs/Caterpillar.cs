@@ -2,17 +2,18 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Caterpillar : MonoBehaviour
+public class Caterpillar : Bug
 {
-    // Start is called before the first frame update
-    void Start()
+
+    public override void SpecialAbility(int i, int j, GridSpace[,] gridSpaces)
     {
-        
+        // TODO set next bug to be webbed
     }
 
-    // Update is called once per frame
-    void Update()
+    public override void DealDamage(Bug bug, int damage = -1)
     {
-        
+        // TODO should isWebbed be set before either of them attack? Unsure
+        bug.isWebbed = true;
+        base.DealDamage(bug, damage);
     }
 }

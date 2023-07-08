@@ -1,42 +1,87 @@
 using System.Collections;
-using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
-using UnityEngine.UIElements;
-
+using UnityEngine.UI;
 
 public class Bug : MonoBehaviour
 {
     public int Health;
+    private int MaxHealth;
     public int AttackDamage;
     public string BugName;
     public float Speed;
+    [SerializeField] 
+    private float BreakWebChance = 0.5f;
     public bool moving = true;
     public bool IsFriendly = true;
     public bool isFighting = false;
+    public bool isWebbed = false;
+    public bool isPoisoned = false;
+    [SerializeField]
+    private int PoisonDamage = 1;
+    private Image HealthRed;
+    private Image HealthGreen;
 
+    // Called always.
+    public virtual void SpecialAbility(int i, int j, GridSpace[,] gridSpaces) { }
 
-    public void TakeDamage(int damage)
+    // Called alongside an attack.
+    public virtual void SpecialAttack(int i, int j, GridSpace[,] gridSpaces) { }
+
+    public virtual void Die()
     {
+        Destroy(gameObject);
+    }
+
+    private void OnDestroy()
+    {
+        Destroy(HealthBar);
+    }
+
+    public bool CanAttack(Bug other)
+    {
+        return other.IsFriendly != IsFriendly;
+    }
+
+
+    public virtual void TakeDamage(Bug fromBug = null, int damage = -1)
+    {
+        if (damage == -1)
+        {
+            // Ideally should never happen
+            if (fromBug == null)
+            {
+                Debug.Log("THIS SHOULDNT HAPPEN");
+                return;
+            }
+            damage = fromBug.AttackDamage;
+        }
         Health -= damage;
     }
 
-    public virtual void DealDamage(Bug bug)
+    public virtual void DealDamage(Bug toBug, int damage = -1)
     {
-        bug.TakeDamage(AttackDamage);
+        // If you're webbed and the random number is greater than the probability of webbing then don't deal damage
+        if (isWebbed && Random.Range(0, 100) > BreakWebChance * 100) return;
+        if (damage == -1)
+        {
+            damage = AttackDamage;
+        }
+        toBug.TakeDamage(this, damage);
     }
     
-    public virtual bool SameTeam(Bug bug)
+    public bool SameTeam(Bug bug)
     {
         return bug != null && IsFriendly == bug.IsFriendly;
     }
 
-    public Coroutine Move(GridSpace to)
+    public IEnumerator Move(GridSpace to)
     {
-        return StartCoroutine(MoveCoroutine(to));
+        if (isPoisoned) TakeDamage(damage: PoisonDamage);
+
+        return MoveAnimation(to);
     }
 
-    protected virtual IEnumerator MoveCoroutine(GridSpace to)
+    protected virtual IEnumerator MoveAnimation(GridSpace to)
     {
         float moveTime = 0.3f; // time it takes to move
         float elapsed = 0; // time that has elapsed
@@ -57,15 +102,17 @@ public class Bug : MonoBehaviour
         transform.position = targetPosition;
     }
 
-    public Coroutine Attack(Bug target)
+    public IEnumerator Attack(Bug target)
     {
-        return StartCoroutine(AttackCoroutine(target));
+        if (isPoisoned) TakeDamage(damage: PoisonDamage);
+        if (target.Health > 0) DealDamage(target);
+        return AttackAnimation(target);
     }
 
-    protected virtual IEnumerator AttackCoroutine(Bug target)
+    protected virtual IEnumerator AttackAnimation(Bug target)
     {
         // Get the initial position of the bug
-        float lungeTime = 0.3f; // the time the lunge should take in seconds
+        float lungeTime = 0.2f; // the time the lunge should take in seconds
         float elapsed = 0; // the time that has already passed
 
         Vector3 originalPosition = transform.position;
@@ -83,6 +130,7 @@ public class Bug : MonoBehaviour
         // Ensure it's really at the target position
         transform.position = targetPosition;
 
+
         elapsed = 0; // reset the elapsed time
         while (elapsed < lungeTime)
         {
@@ -96,49 +144,75 @@ public class Bug : MonoBehaviour
         // Ensure it's back at the original position
         transform.position = originalPosition;
 
-        DealDamage(target);
     }
 
     private Vector3 targetPosition;
-    private Coroutine moveCoroutine;
-
+    private Coroutine DoMoveAnimation;
+    public GameObject HealthBar;
+    private Canvas canvas;
 
     private void Awake()
     {
         PickNewTargetPosition();
         StartCoroutine(MoveToTargetPosition());
+        canvas = GameObject.FindGameObjectWithTag("Canvas").GetComponent<Canvas>();
+        HealthBar = Instantiate(HealthBar, canvas.transform);
+        foreach (var comp in HealthBar.GetComponentsInChildren<Image>())
+        {
+            if (comp.gameObject.CompareTag("green"))
+            {
+                HealthGreen = comp;
+                HealthGreen.enabled = false;
+            } else if (comp.gameObject.CompareTag("red"))
+            {
+                HealthRed = comp;
+                HealthRed.enabled = false;
+            }
+        }
+        MaxHealth = Health;
     }
 
     private void PickNewTargetPosition()
     {
         // Here you need to specify the range where your bug can move.
-        float randomX = Random.Range(-7f, -1f); // replace these with your scene boundaries
-        float randomY = Random.Range(-3f, 3f); // replace these with your scene boundaries
+        float randomX = Random.Range(-6f, -3.3f); // replace these with your scene boundaries
+        float randomY = Random.Range(-1.25f, 3.3f); // replace these with your scene boundaries
 
         targetPosition = new Vector3(randomX, randomY, 0);
     }
 
     public void Update()
     {
-        if (isFighting)
+        if (Health > MaxHealth) MaxHealth = Health;
+
+        if ((isFighting || !moving) && DoMoveAnimation != null)
         {
-            if (moveCoroutine != null)
-            {
-                StopCoroutine(moveCoroutine);
-                moveCoroutine = null;
-            }
-            return;
+            StopCoroutine(DoMoveAnimation);
+            DoMoveAnimation = null;
         }
-        if (!moving && moveCoroutine != null)
-        {
-            StopCoroutine(moveCoroutine);
-            moveCoroutine = null;
-        } else if (moving && moveCoroutine == null)
+        else if (!isFighting && moving && DoMoveAnimation == null)
         {
             PickNewTargetPosition();
-            moveCoroutine = StartCoroutine(MoveToTargetPosition());
+            DoMoveAnimation = StartCoroutine(MoveToTargetPosition());
         }
+        if (Health == MaxHealth && HealthGreen && HealthRed)
+        {
+            HealthGreen.enabled = false;
+            HealthRed.enabled = false;
+        } else if (HealthGreen && HealthRed)
+        {
+            HealthBar.transform.position = transform.position;
+            HealthGreen.enabled = true;
+            HealthRed.enabled = true;
+            float healthRatio = (float) Health / MaxHealth;
+            Debug.Log("Health ratio is " + healthRatio);
+            HealthGreen.fillAmount = healthRatio;
+        }
+
+
+        
     }
+
 
     private IEnumerator MoveToTargetPosition()
     {
@@ -146,18 +220,17 @@ public class Bug : MonoBehaviour
         {
             Vector3 direction = (targetPosition - transform.position).normalized;
 
-            Vector3 movement = new Vector3(direction.x, direction.y, 0);
+            Vector3 movement = new(direction.x, direction.y, 0);
 
             GetComponent<SpriteRenderer>().flipX = movement.x < 0;
 
-            transform.position += speed * Time.deltaTime * movement;
+            transform.position += Speed * Time.deltaTime * movement;
             yield return null;
         }
         if (moving)
         {
             PickNewTargetPosition();
-            moveCoroutine = StartCoroutine(MoveToTargetPosition());
+            DoMoveAnimation = StartCoroutine(MoveToTargetPosition());
         }
     }
-
 }
